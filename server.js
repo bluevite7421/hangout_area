@@ -35,7 +35,7 @@ const { WebSocketServer } = require('ws');
 const { randomUUID } = require('crypto');
 
 const PORT = process.env.PORT || 3000;
-const STATIC_DIR = path.join(__dirname, '..');
+const STATIC_DIR = __dirname;
 
 const app = express();
 app.use(express.static(STATIC_DIR));
