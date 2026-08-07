@@ -1,0 +1,1560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>swm_hangouts</title>
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow: hidden; font-family: 'Lato', sans-serif; }
+        #gameCanvas { display: block; }
+
+        #titleScreen {
+            position: fixed; top: 0; left: 0; width: 100%;
+            height: 100vh; height: 100dvh; /* dvh avoids the "slides up" jump when mobile browser chrome collapses */
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100; overflow: hidden;
+        }
+        #titleBgCanvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 0;
+        }
+        #titleScreen > *:not(#titleBgCanvas):not(.titleSubPanel) { position: relative; z-index: 1; }
+        #titleLogo {
+            color: white; font-size: 64px; font-weight: 700; letter-spacing: 4px;
+            text-shadow: 3px 3px 8px rgba(0,0,0,0.6);
+            margin-bottom: 50px; text-align: center;
+        }
+        #playBtn {
+            display: flex; align-items: center; gap: 8px;
+            padding: 16px 40px; font-size: 20px; font-weight: 700;
+            font-family: 'Lato', sans-serif; letter-spacing: 1px;
+            color: white; background: rgba(255,255,255,0.12);
+            border: 2px solid rgba(255,255,255,0.5); border-radius: 8px;
+            cursor: pointer;
+        }
+        #playBtn:hover { background: rgba(255,255,255,0.25); }
+        #playBtn .material-icons { font-size: 26px; }
+
+        #titleSmallBtns { display: flex; gap: 16px; margin-top: 20px; }
+        .titleIconBtn {
+            width: 48px; height: 48px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.5);
+            color: white; cursor: pointer;
+        }
+        .titleIconBtn:hover { background: rgba(255,255,255,0.25); }
+
+        .titleSubPanel {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%;
+            height: 100vh; height: 100dvh;
+            background: rgba(10,10,10,0.5);
+            -webkit-backdrop-filter: blur(20px) brightness(0.55);
+            backdrop-filter: blur(20px) brightness(0.55);
+            color: white;
+            font-family: 'Lato', sans-serif;
+            z-index: 101; overflow-y: auto;
+        }
+        .titleSubPanel.open { display: block; }
+        .subPanelHeader {
+            display: flex; align-items: center; gap: 12px;
+            padding: 20px 24px; border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+        .subPanelBack {
+            cursor: pointer; color: white; display: flex; align-items: center;
+        }
+        .subPanelHeader h2 { font-size: 22px; font-weight: 700; }
+        .subPanelBody {
+            padding: 30px 24px; max-width: 560px; margin: 0 auto;
+        }
+        .creditSection {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px;
+            padding: 8px 20px;
+            margin-bottom: 16px;
+        }
+        .creditRow {
+            display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+            font-size: 14px; padding: 12px 0; color: #eee;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .creditRow:last-child { border-bottom: none; }
+        .creditRow span:first-child { color: #fff; font-weight: 700; white-space: nowrap; }
+        .creditRow span:last-child { color: #fff; text-align: right; }
+        .creditRow .creditNote { display: block; font-size: 11px; color: #fff; font-weight: 400; margin-top: 2px; }
+
+        #crosshair {
+            position: fixed; top: 50%; left: 50%;
+            width: 6px; height: 6px; margin: -3px 0 0 -3px;
+            background: white; border-radius: 50%;
+            box-shadow: 0 0 2px rgba(0,0,0,0.8);
+            pointer-events: none; z-index: 10;
+        }
+
+        #chatLog {
+            position: fixed; left: 16px; bottom: 90px; width: 380px; max-width: 60vw;
+            max-height: 220px; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 4px;
+            pointer-events: none; z-index: 12;
+        }
+        .chatLine {
+            font-family: 'Lato', sans-serif; font-size: 14px; color: white;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
+            background: rgba(0,0,0,0.35); padding: 4px 8px; border-radius: 4px;
+            word-break: break-word;
+            transition: opacity 1s ease;
+        }
+        .chatLine.fading { opacity: 0; }
+        .chatName { font-weight: 700; color: #9fd2ff; }
+        #chatInput {
+            display: none;
+            position: fixed; left: 16px; bottom: 50px; width: 380px; max-width: 60vw;
+            font-family: 'Lato', sans-serif; font-size: 14px;
+            padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.5);
+            background: rgba(0,0,0,0.6); color: white; z-index: 13;
+        }
+        #chatInput::placeholder { color: #bbb; }
+
+        /* Mobile touch controls — hidden by default, shown via JS on touch devices */
+        #joystickBase {
+            display: none;
+            position: fixed; bottom: 40px; left: 40px;
+            width: 120px; height: 120px; border-radius: 50%;
+            background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.4);
+            z-index: 25; touch-action: none;
+        }
+        #joystickKnob {
+            position: absolute; top: 50%; left: 50%;
+            width: 54px; height: 54px; margin: -27px 0 0 -27px;
+            border-radius: 50%; background: rgba(255,255,255,0.5);
+            pointer-events: none;
+        }
+        .mobileBtn {
+            display: none;
+            position: fixed;
+            width: 70px; height: 70px; border-radius: 50%;
+            background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.4);
+            color: white; font-family: 'Lato', sans-serif; font-size: 12px; font-weight: 700;
+            align-items: center; justify-content: center; text-align: center;
+            z-index: 25; user-select: none; touch-action: none;
+        }
+        #btnJump  { bottom: 130px; right: 40px; }
+        #btnRun   { bottom: 40px;  right: 120px; }
+        #btnSwitchView { bottom: 40px; right: 40px; font-size: 10px; }
+        .mobileBtn.active { background: rgba(255,255,255,0.45); }
+
+        #settingsIcon {
+            position: fixed; top: 16px; left: 16px;
+            width: 48px; height: 48px;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.45); border-radius: 50%;
+            color: white; font-size: 28px; cursor: pointer;
+            z-index: 20; user-select: none;
+        }
+        #settingsIcon:hover { background: rgba(0,0,0,0.6); }
+
+        #settingsPanel {
+            display: none;
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+            width: 420px; max-width: 90vw; max-height: 80vh;
+            background: rgba(30,30,30,0.96); color: white;
+            font-family: 'Lato', sans-serif;
+            border-radius: 10px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+            z-index: 15; overflow: hidden;
+        }
+        #settingsPanel.open { display: flex; flex-direction: column; }
+
+        #settingsHeader {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 20px; border-bottom: 1px solid #444;
+        }
+        #settingsHeader h2 { font-size: 18px; font-weight: 700; }
+        #settingsClose {
+            cursor: pointer; color: #aaa; font-size: 22px; line-height: 1;
+        }
+        #settingsClose:hover { color: white; }
+
+        #settingsTabs { display: flex; border-bottom: 1px solid #444; }
+        .settingsTab {
+            flex: 1; text-align: center; padding: 12px 0; cursor: pointer;
+            font-size: 14px; font-weight: 700; letter-spacing: 0.5px;
+            color: #999; border-bottom: 3px solid transparent;
+        }
+        .settingsTab:hover { color: #ddd; }
+        .settingsTab.active { color: white; border-bottom: 3px solid #4a9eff; }
+
+        #settingsBody { padding: 20px; overflow-y: auto; }
+        .settingsPage { display: none; }
+        .settingsPage.active { display: block; }
+
+        .empty { color: #777; font-size: 14px; font-style: italic; }
+        .optionRow {
+            display: flex; align-items: center; gap: 12px;
+            padding: 16px 20px; cursor: pointer;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px; margin-bottom: 12px; color: white; font-weight: 700;
+        }
+        .optionRow:hover { background: rgba(255,255,255,0.12); }
+        .formLabel { display: block; margin: 20px 0 6px; font-weight: 700; font-size: 14px; color: white; }
+        .formInput {
+            width: 100%; padding: 10px 14px; font-family: 'Lato', sans-serif; font-size: 14px;
+            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 6px; color: white;
+        }
+        .formInput::placeholder { color: #999; }
+        .skinPreview {
+            width: 96px; height: 96px; image-rendering: pixelated;
+            border: 1px solid rgba(255,255,255,0.3); border-radius: 6px;
+            margin-top: 10px; background: rgba(255,255,255,0.06);
+        }
+        .formBtn {
+            display: inline-flex; align-items: center; gap: 8px;
+            margin-top: 14px; padding: 10px 20px;
+            font-family: 'Lato', sans-serif; font-size: 14px; font-weight: 700;
+            color: white; background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; cursor: pointer;
+        }
+        .formBtn:hover { background: rgba(255,255,255,0.25); }
+        .formBtn.danger { background: rgba(200,50,50,0.25); border-color: rgba(255,100,100,0.5); }
+        .formBtn.danger:hover { background: rgba(200,50,50,0.4); }
+        #leaveGameBtn {
+            display: flex; align-items: center; gap: 8px;
+            margin-top: 20px; padding: 10px 20px;
+            font-family: 'Lato', sans-serif; font-size: 14px; font-weight: 700;
+            color: white; background: rgba(200,50,50,0.25);
+            border: 1px solid rgba(255,100,100,0.5); border-radius: 6px;
+            cursor: pointer;
+        }
+        #leaveGameBtn:hover { background: rgba(200,50,50,0.4); }
+        .control-row {
+            font-size: 14px; margin: 10px 0; color: #eee;
+            display: flex; justify-content: space-between;
+        }
+
+        /* Welcome screen */
+        #welcomeScreen {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%;
+            height: 100vh; height: 100dvh;
+            background: #ffffff;
+            z-index: 200; align-items: center; justify-content: center;
+        }
+        #welcomeScreen.open { display: flex; }
+        .welcomeCard {
+            width: 460px; max-width: 90vw; color: #111; font-family: 'Lato', sans-serif;
+            text-align: center;
+        }
+        .welcomePage { display: none; }
+        .welcomePage.active { display: block; }
+        .welcomeCard h1 { font-size: 32px; margin-bottom: 16px; color: #111; }
+        .welcomeCard p { font-size: 15px; color: #555; margin-bottom: 24px; }
+        .welcomeCard .formLabel { color: #111; }
+        .welcomeCard .formInput {
+            background: #f4f4f4; border: 1px solid #ccc; color: #111;
+        }
+        .welcomeCard .formInput::placeholder { color: #999; }
+        .welcomeCard .skinPreview { border: 1px solid #ccc; background: #f4f4f4; }
+        .welcomeCard .formBtn {
+            color: #111; background: #f0f0f0; border: 1px solid #ccc;
+        }
+        .welcomeCard .formBtn:hover { background: #e4e4e4; }
+        .welcomeNav { display: flex; justify-content: center; gap: 14px; margin-top: 24px; }
+        .welcomeBtn {
+            display: flex; align-items: center; gap: 6px;
+            padding: 12px 28px; font-family: 'Lato', sans-serif; font-size: 15px; font-weight: 700;
+            color: #111; background: #f0f0f0;
+            border: 2px solid #ccc; border-radius: 8px; cursor: pointer;
+        }
+        .welcomeBtn:hover { background: #e4e4e4; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="titleScreen">
+        <canvas id="titleBgCanvas"></canvas>
+        <div id="titleLogo">HANGOUT AREA</div>
+        <button id="playBtn"><span class="material-icons">play_arrow</span>PLAY</button>
+        <div id="titleSmallBtns">
+            <div class="titleIconBtn" id="creditsBtn"><span class="material-icons">description</span></div>
+            <div class="titleIconBtn" id="menuSettingsBtn"><span class="material-icons">settings</span></div>
+        </div>
+
+        <div class="titleSubPanel" id="moreOptionsPanel">
+            <div class="subPanelHeader">
+                <div class="subPanelBack" id="moreOptionsBack"><span class="material-icons">arrow_back</span></div>
+                <h2>Notes</h2>
+            </div>
+            <div class="subPanelBody">
+                <div class="optionRow" id="moreOptionsCreditsRow"><span class="material-icons">description</span>Credits</div>
+            </div>
+        </div>
+
+        <div class="titleSubPanel" id="creditsPanel">
+            <div class="subPanelHeader">
+                <div class="subPanelBack" id="creditsBack"><span class="material-icons">arrow_back</span></div>
+                <h2>Credits</h2>
+            </div>
+            <div class="subPanelBody">
+                <div class="creditSection">
+                    <div class="creditRow"><span>Main Director</span><span>Serat18</span></div>
+                    <div class="creditRow"><span>Whole Game Stuff</span><span>Claude Sonnet 5</span></div>
+                </div>
+                <div class="creditSection">
+                    <div class="creditRow"><span>Tree Texture</span><span>Notch<span class="creditNote">Technically from a custom World of Warcraft map made by someone else</span></span></div>
+                    <div class="creditRow"><span>Wall Texture</span><span>Serat18</span></div>
+                    <div class="creditRow"><span>Start Here Tree Texture</span><span>Jappa<span class="creditNote">Modification by Serat18</span></span></div>
+                    <div class="creditRow"><span>Grass Texture</span><span>stereoscopic<span class="creditNote">From OpenGameArt</span></span></div>
+                </div>
+                <div class="creditSection">
+                    <div class="creditRow"><span>Lato Font</span><span>Łukasz Dziedzic</span></div>
+                    <div class="creditRow"><span>Icons</span><span>Google</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="titleSubPanel" id="menuSettingsPanel">
+            <div class="subPanelHeader">
+                <div class="subPanelBack" id="menuSettingsBack"><span class="material-icons">arrow_back</span></div>
+                <h2>Settings</h2>
+            </div>
+            <div class="subPanelBody">
+                <div class="optionRow" id="accountsRow"><span class="material-icons">account_circle</span>Accounts</div>
+            </div>
+        </div>
+
+        <div class="titleSubPanel" id="accountsPanel">
+            <div class="subPanelHeader">
+                <div class="subPanelBack" id="accountsBack"><span class="material-icons">arrow_back</span></div>
+                <h2>Accounts</h2>
+            </div>
+            <div class="subPanelBody">
+                <label class="formLabel">Name</label>
+                <input type="text" class="formInput" id="accountsNameInput" placeholder="Player" maxlength="20">
+                <button class="formBtn" id="accountsSaveNameBtn"><span class="material-icons">check</span>Save Name</button>
+
+                <label class="formLabel">Skin</label>
+                <div><img class="skinPreview" id="accountsSkinPreview" src="textures/player.png"></div>
+                <input type="file" accept="image/png" id="accountsSkinInput" style="display:none;">
+                <button class="formBtn" id="accountsChooseSkinBtn"><span class="material-icons">image</span>Choose Skin</button>
+
+                <label class="formLabel">Saved Data</label>
+                <button class="formBtn danger" id="accountsClearBtn"><span class="material-icons">delete</span>Clear Saved Data</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="welcomeScreen">
+        <div class="welcomeCard">
+            <div class="welcomePage active" id="welcomePage1">
+                <h1>Welcome!</h1>
+                <p>Before you jump in, let's set up your player.</p>
+                <div class="welcomeNav">
+                    <button class="welcomeBtn" id="welcomeNext1">Next<span class="material-icons">arrow_forward</span></button>
+                </div>
+            </div>
+            <div class="welcomePage" id="welcomePage2">
+                <h1>Set Up Your Player</h1>
+                <label class="formLabel">Name</label>
+                <input type="text" class="formInput" id="welcomeNameInput" placeholder="Player" maxlength="20">
+                <label class="formLabel">Skin</label>
+                <div><img class="skinPreview" id="welcomeSkinPreview" src="textures/player.png"></div>
+                <input type="file" accept="image/png" id="welcomeSkinInput" style="display:none;">
+                <button class="formBtn" id="welcomeChooseSkinBtn"><span class="material-icons">image</span>Choose Skin</button>
+                <div class="welcomeNav">
+                    <button class="welcomeBtn" id="welcomePrev2"><span class="material-icons">arrow_back</span>Previous</button>
+                    <button class="welcomeBtn" id="welcomeNext2">Start<span class="material-icons">arrow_forward</span></button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="crosshair"></div>
+
+    <div id="chatLog"></div>
+    <input type="text" id="chatInput" placeholder="Press Enter to send, Esc to cancel" maxlength="200">
+
+    <div id="joystickBase"><div id="joystickKnob"></div></div>
+    <div class="mobileBtn" id="btnJump">JUMP</div>
+    <div class="mobileBtn" id="btnRun">RUN</div>
+    <div class="mobileBtn" id="btnSwitchView">VIEW</div>
+
+    <div id="settingsIcon" class="material-icons">settings</div>
+
+    <div id="settingsPanel">
+        <div id="settingsHeader">
+            <h2>Settings</h2>
+            <div id="settingsClose">&times;</div>
+        </div>
+        <div id="settingsTabs">
+            <div class="settingsTab active" data-page="players">Players</div>
+            <div class="settingsTab" data-page="controls">Controls</div>
+        </div>
+        <div id="settingsBody">
+            <div class="settingsPage active" id="page-players">
+                <div class="empty">No players yet</div>
+                <button id="leaveGameBtn"><span class="material-icons">logout</span>Leave Game</button>
+            </div>
+            <div class="settingsPage" id="page-controls">
+                <div class="control-row"><span>Move</span><span>WASD</span></div>
+                <div class="control-row"><span>Jump</span><span>Space</span></div>
+                <div class="control-row"><span>Sprint</span><span>Shift</span></div>
+                <div class="control-row"><span>Toggle View</span><span id="viewStatus">V (→ 3rd Person (Back))</span></div>
+                <div class="control-row"><span>Look</span><span>Mouse</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const crosshair = document.getElementById('crosshair');
+        const titleScreen = document.getElementById('titleScreen');
+        let gameStarted = false;
+
+        // ── Player profile (name + skin), saved to localStorage ──────────
+        const PROFILE_KEY = 'hangoutProfile';
+        function loadProfile() {
+            try { return JSON.parse(localStorage.getItem(PROFILE_KEY)); } catch(e) { return null; }
+        }
+        function saveProfile(profile) {
+            localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+        }
+        function clearProfile() {
+            localStorage.removeItem(PROFILE_KEY);
+        }
+        let playerName = 'Player';
+
+        // ── Identity UUID ──────────────────────────────────────────────────
+        // A private, per-browser identifier sent to the server so it can
+        // recall your name/skin if you reconnect while the server is still
+        // running (see server.js for why this is kept separate from the
+        // per-connection id that actually gets shared with other players).
+        const IDENTITY_KEY = 'hangoutIdentityUuid';
+        function loadIdentityUuid() {
+            let id = localStorage.getItem(IDENTITY_KEY);
+            if (!id) {
+                id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(16) + Math.random().toString(16).slice(2)));
+                localStorage.setItem(IDENTITY_KEY, id);
+            }
+            return id;
+        }
+        function clearIdentityUuid() {
+            localStorage.removeItem(IDENTITY_KEY);
+        }
+        let myIdentityUuid = loadIdentityUuid();
+
+        document.getElementById('playBtn').addEventListener('click', () => {
+            gameStarted = true;
+            titleScreen.style.display = 'none';
+            canvas.requestPointerLock();
+            connectMultiplayer();
+        });
+
+        // ── Nested panel navigation ───────────────────────────────────────
+        // title screen → moreOptionsPanel → creditsPanel (back goes to moreOptionsPanel, not straight to title)
+        // title screen → menuSettingsPanel → accountsPanel (back goes to menuSettingsPanel, not straight to title)
+        const moreOptionsPanel = document.getElementById('moreOptionsPanel');
+        const creditsPanel = document.getElementById('creditsPanel');
+        const menuSettingsPanel = document.getElementById('menuSettingsPanel');
+        const accountsPanel = document.getElementById('accountsPanel');
+
+        document.getElementById('creditsBtn').addEventListener('click', () => {
+            moreOptionsPanel.classList.add('open');
+        });
+        document.getElementById('moreOptionsBack').addEventListener('click', () => {
+            moreOptionsPanel.classList.remove('open');
+        });
+        document.getElementById('moreOptionsCreditsRow').addEventListener('click', () => {
+            moreOptionsPanel.classList.remove('open');
+            creditsPanel.classList.add('open');
+        });
+        document.getElementById('creditsBack').addEventListener('click', () => {
+            creditsPanel.classList.remove('open');
+            moreOptionsPanel.classList.add('open');
+        });
+
+        document.getElementById('menuSettingsBtn').addEventListener('click', () => {
+            menuSettingsPanel.classList.add('open');
+        });
+        document.getElementById('menuSettingsBack').addEventListener('click', () => {
+            menuSettingsPanel.classList.remove('open');
+        });
+        document.getElementById('accountsRow').addEventListener('click', () => {
+            menuSettingsPanel.classList.remove('open');
+            accountsPanel.classList.add('open');
+            document.getElementById('accountsNameInput').value = playerName;
+        });
+        document.getElementById('accountsBack').addEventListener('click', () => {
+            accountsPanel.classList.remove('open');
+            menuSettingsPanel.classList.add('open');
+        });
+
+        // ── Accounts panel: change name/skin anytime, or clear saved data ─
+        document.getElementById('accountsSaveNameBtn').addEventListener('click', () => {
+            const name = document.getElementById('accountsNameInput').value.trim() || 'Player';
+            playerName = name;
+            updateNameplateTexture(playerName);
+            const profile = loadProfile() || {};
+            profile.name = name;
+            saveProfile(profile);
+        });
+        document.getElementById('accountsChooseSkinBtn').addEventListener('click', () => {
+            document.getElementById('accountsSkinInput').click();
+        });
+        document.getElementById('accountsSkinInput').addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                const dataURL = ev.target.result;
+                document.getElementById('accountsSkinPreview').src = dataURL;
+                const profile = loadProfile() || {};
+                profile.skin = dataURL;
+                saveProfile(profile);
+                new THREE.TextureLoader().load(dataURL, tex => applySkinTexture(tex, playerParts));
+            };
+            reader.readAsDataURL(file);
+        });
+        document.getElementById('accountsClearBtn').addEventListener('click', () => {
+            clearProfile();
+            clearIdentityUuid();
+            myIdentityUuid = loadIdentityUuid();
+            playerName = 'Player';
+            updateNameplateTexture(playerName);
+            document.getElementById('accountsSkinPreview').src = 'textures/player.png';
+            new THREE.TextureLoader().load('textures/player.png', tex => applySkinTexture(tex, playerParts));
+            accountsPanel.classList.remove('open');
+            menuSettingsPanel.classList.remove('open');
+            titleScreen.style.display = 'none';
+            document.getElementById('welcomeNameInput').value = '';
+            document.getElementById('welcomeSkinPreview').src = 'textures/player.png';
+            pendingSkinDataURL = null;
+            welcomePage2.classList.remove('active');
+            welcomePage1.classList.add('active');
+            welcomeScreen.style.backgroundColor = '#ffffff';
+            welcomeScreen.classList.add('open');
+        });
+
+        // ── Welcome screen (first-time setup) ──────────────────────────────
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const welcomePage1 = document.getElementById('welcomePage1');
+        const welcomePage2 = document.getElementById('welcomePage2');
+        let pendingSkinDataURL = null;
+
+        const existingProfile = loadProfile();
+        if (existingProfile) {
+            playerName = existingProfile.name || 'Player';
+            pendingSkinDataURL = existingProfile.skin || null;
+        } else {
+            titleScreen.style.display = 'none';
+            welcomeScreen.style.backgroundColor = '#ffffff';
+            welcomeScreen.classList.add('open');
+        }
+
+        document.getElementById('welcomeNext1').addEventListener('click', () => {
+            welcomePage1.classList.remove('active');
+            welcomePage2.classList.add('active');
+        });
+        document.getElementById('welcomePrev2').addEventListener('click', () => {
+            welcomePage2.classList.remove('active');
+            welcomePage1.classList.add('active');
+        });
+        document.getElementById('welcomeChooseSkinBtn').addEventListener('click', () => {
+            document.getElementById('welcomeSkinInput').click();
+        });
+        document.getElementById('welcomeSkinInput').addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                pendingSkinDataURL = ev.target.result;
+                document.getElementById('welcomeSkinPreview').src = pendingSkinDataURL;
+            };
+            reader.readAsDataURL(file);
+        });
+        document.getElementById('welcomeNext2').addEventListener('click', () => {
+            const name = document.getElementById('welcomeNameInput').value.trim() || 'Player';
+            playerName = name;
+            updateNameplateTexture(playerName);
+            saveProfile({ name, skin: pendingSkinDataURL });
+            if (pendingSkinDataURL) {
+                new THREE.TextureLoader().load(pendingSkinDataURL, tex => applySkinTexture(tex, playerParts));
+            }
+            welcomeScreen.classList.remove('open');
+            titleScreen.style.display = 'flex';
+        });
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87ceeb);
+        scene.fog = new THREE.Fog(0x87ceeb, 300, 1500);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // ── Shtree spy camera ────────────────────────────────────────────
+        // The "Start Here Tree" is secretly watching the map — its camera
+        // sits at the exact center of the tree's 2D sprite and slowly spins,
+        // feeding the title screen's blurred background.
+        const titleBgCanvas = document.getElementById('titleBgCanvas');
+        const bgRenderer = new THREE.WebGLRenderer({ canvas: titleBgCanvas, antialias: true });
+        bgRenderer.setSize(window.innerWidth, window.innerHeight);
+        const spyCam = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
+        spyCam.position.set(150, 22.5, 0); // exact center of the shtree sprite
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(100, 200, 100);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.left = dirLight.shadow.camera.bottom = -200;
+        dirLight.shadow.camera.right = dirLight.shadow.camera.top = 200;
+        dirLight.shadow.bias = -0.0015;
+        dirLight.shadow.normalBias = 0.02;
+        scene.add(dirLight);
+        scene.add(dirLight.target);
+        const dirLightOffset = new THREE.Vector3(100, 200, 100); // fixed offset, recentered on player each frame
+
+
+        // ── Sun ──────────────────────────────────────────────────────────
+        function makeSkyCircle() {
+            const c = document.createElement('canvas'); c.width = c.height = 256;
+            const ctx = c.getContext('2d');
+            ctx.clearRect(0,0,256,256);
+            const cx=128, cy=128;
+            ctx.fillStyle='rgba(255,255,255,1)';
+            ctx.beginPath(); ctx.arc(cx,cy,100,0,Math.PI*2); ctx.fill();
+            const g=ctx.createRadialGradient(cx,cy,100,cx,cy,128);
+            g.addColorStop(0,'rgba(255,255,255,1)');
+            g.addColorStop(1,'rgba(255,255,255,0)');
+            ctx.fillStyle=g;
+            ctx.beginPath(); ctx.arc(cx,cy,128,0,Math.PI*2); ctx.fill();
+            return new THREE.CanvasTexture(c);
+        }
+        const _skyTex = makeSkyCircle();
+        const sunMesh = new THREE.Sprite(new THREE.SpriteMaterial({map:_skyTex,transparent:true,depthWrite:false,fog:false}));
+        sunMesh.scale.set(220,220,1);
+        scene.add(sunMesh);
+
+        function box(w,h,d, x,y,z, mat) {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+            m.position.set(x,y,z); m.castShadow = true; m.receiveShadow = true; return m;
+        }
+
+        function addPatch(mat, size, x, z, yOffset) {
+            const m = new THREE.Mesh(new THREE.PlaneGeometry(size,size), mat);
+            m.rotation.x = -Math.PI/2;
+            m.position.set(x, yOffset, z);
+            m.receiveShadow = true;
+            scene.add(m);
+            return m;
+        }
+
+        // ══════════════════════════════════════════════════════
+        //  MAP GEOMETRY — replace everything below for new maps
+        // ══════════════════════════════════════════════════════
+
+        // ── Floor ────────────────────────────────────────────────────────
+        // Replace PlaneGeometry size and texture to match your map
+        // 10,000×10,000 units — big enough that you'll never reach the edge
+        // in normal play (fog fades everything out first), without being
+        // literally infinite geometry.
+        const floorTex = new THREE.TextureLoader().load('textures/grass.png');
+        floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
+        floorTex.repeat.set(200,200); // same ~50-unit tile size as before, just fewer of them on the smaller floor
+        floorTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        floorTex.magFilter = THREE.NearestFilter;
+        floorTex.minFilter = THREE.NearestMipmapNearestFilter;
+        const floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(10000,10000,100,100), new THREE.MeshStandardMaterial({ map: floorTex }));
+        floorMesh.rotation.x = -Math.PI/2; floorMesh.receiveShadow = true; scene.add(floorMesh);
+
+        // ── Ground patches ───────────────────────────────────────────────
+        // Add extra patches here using addPatch(mat, size, x, z, yOffset)
+        // with your own material/texture, e.g.:
+        // const patchMat = new THREE.MeshStandardMaterial({ map: new THREE.TextureLoader().load('textures/your-texture.png') });
+        // addPatch(patchMat, 60, 0, 0, 0.05);
+
+        // ── Wall materials ───────────────────────────────────────────────
+        // Plain colours for now — swap in map: new THREE.TextureLoader().load('textures/...') for a textured look
+        const wallTex = new THREE.TextureLoader().load('textures/wall.png');
+        wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
+        wallTex.repeat.set(500, 1); // square tiles at the new 20-unit wall height (10000/20) — one tile fills the full height
+        wallTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        wallTex.magFilter = THREE.NearestFilter;
+        wallTex.minFilter = THREE.NearestMipmapNearestFilter;
+        const wallMat   = new THREE.MeshStandardMaterial({ map: wallTex });
+        const darkMat   = new THREE.MeshStandardMaterial({ color: 0x222222 });
+        const walls = [];
+        const roofs = [];
+
+        function addWall(w,h,d, x,y,z, mat) { const m = box(w,h,d,x,y,z,mat); walls.push(m); scene.add(m); }
+        function addRoof(w,h,d, x,y,z, mat) { const m = box(w,h,d,x,y,z,mat); roofs.push(m); walls.push(m); scene.add(m); }
+
+        // ── Boundary ─────────────────────────────────────────────────────
+        // Walls at the true edge of the 10,000×10,000 floor, so you can't
+        // walk forever — you'll eventually hit an edge, it's just very far.
+        // Want a smaller fenced-in play area instead? Just move these numbers
+        // in (e.g. ±500) rather than using the literal floor edge.
+        const EDGE = 5000;
+        addWall(10000, 20, 4,  0, 10, -EDGE, wallMat);
+        addWall(10000, 20, 4,  0, 10,  EDGE, wallMat);
+        addWall(4, 20, 10000, -EDGE, 10, 0,  wallMat);
+        addWall(4, 20, 10000,  EDGE, 10, 0,  wallMat);
+
+        // ── Trees ────────────────────────────────────────────────────────
+        // Billboard sprites (always face the camera), permanently placed at
+        // these fixed positions — not randomly generated, so the layout is
+        // identical every time the game loads (important once multiplayer
+        // exists, so every player sees the same trees in the same spots).
+        const TREE_POSITIONS = [
+            { x:1458, z:-1835, h:55 },
+            { x:4661, z:1687, h:57 },
+            { x:-3077, z:3602, h:58 },
+            { x:3079, z:2251, h:44 },
+            { x:2763, z:-2893, h:53 },
+            { x:-2503, z:-2736, h:62 },
+            { x:3490, z:3233, h:34 },
+            { x:-278, z:2175, h:45 },
+            { x:-2074, z:-1238, h:67 },
+            { x:3485, z:-759, h:47 },
+            { x:3005, z:-3076, h:36 },
+            { x:-1712, z:-1156, h:50 },
+            { x:4446, z:-305, h:60 },
+            { x:-2582, z:-601, h:65 },
+            { x:2998, z:-1806, h:51 },
+            { x:3258, z:1882, h:34 },
+            { x:839, z:-3834, h:58 },
+            { x:-944, z:1877, h:40 },
+            { x:-1107, z:-936, h:47 },
+            { x:4175, z:-653, h:31 },
+            { x:-2332, z:-3451, h:57 },
+            { x:-4648, z:-2009, h:41 },
+            { x:-773, z:-2651, h:62 },
+            { x:-194, z:359, h:64 },
+            { x:1065, z:1874, h:31 },
+            { x:508, z:-482, h:50 },
+            { x:1538, z:-1957, h:50 },
+            { x:4270, z:-2806, h:51 },
+            { x:3819, z:1030, h:31 },
+            { x:1314, z:1400, h:46 },
+            { x:2864, z:1744, h:41 },
+            // ── +50 additional trees (fixed positions, not runtime-random) ──
+            { x:-111, z:4629, h:49 },
+            { x:2525, z:-1808, h:41 },
+            { x:2835, z:4597, h:52 },
+            { x:4485, z:2286, h:62 },
+            { x:1364, z:3788, h:37 },
+            { x:-4388, z:2674, h:43 },
+            { x:-879, z:-3155, h:49 },
+            { x:1785, z:4631, h:41 },
+            { x:-3250, z:-2079, h:39 },
+            { x:4631, z:-1289, h:69 },
+            { x:-2548, z:3610, h:66 },
+            { x:-3371, z:3781, h:53 },
+            { x:4627, z:4518, h:56 },
+            { x:1926, z:-3510, h:30 },
+            { x:1018, z:2472, h:53 },
+            { x:3863, z:-4271, h:35 },
+            { x:1560, z:-2090, h:53 },
+            { x:2981, z:3943, h:42 },
+            { x:-3482, z:-1229, h:62 },
+            { x:1392, z:1100, h:37 },
+            { x:-3334, z:993, h:64 },
+            { x:-887, z:-1362, h:48 },
+            { x:2918, z:-708, h:36 },
+            { x:-2879, z:4313, h:54 },
+            { x:-2467, z:-2485, h:45 },
+            { x:2469, z:1936, h:61 },
+            { x:1545, z:-696, h:38 },
+            { x:1580, z:-194, h:62 },
+            { x:1789, z:-503, h:32 },
+            { x:-2990, z:-4173, h:45 },
+            { x:1470, z:-4465, h:31 },
+            { x:-3115, z:-1728, h:36 },
+            { x:4363, z:80, h:31 },
+            { x:-287, z:3419, h:50 },
+            { x:-3132, z:-173, h:44 },
+            { x:-2382, z:43, h:44 },
+            { x:3556, z:-92, h:68 },
+            { x:2618, z:-4356, h:54 },
+            { x:3681, z:1322, h:58 },
+            { x:1506, z:-518, h:67 },
+            { x:-429, z:-2424, h:38 },
+            { x:1692, z:-3184, h:51 },
+            { x:-3679, z:-1468, h:52 },
+            { x:-1973, z:-1718, h:67 },
+            { x:-824, z:822, h:62 },
+            { x:-4043, z:-3000, h:57 },
+            { x:-3882, z:-600, h:52 },
+            { x:4051, z:4683, h:50 },
+            { x:-263, z:-2892, h:66 },
+            { x:243, z:-3017, h:46 }
+        ];
+        const treeTex = new THREE.TextureLoader().load('textures/tree.png', tex => {
+            tex.magFilter = THREE.NearestFilter;
+            tex.minFilter = THREE.NearestMipmapNearestFilter;
+            const aspect = tex.image.width / tex.image.height;
+            TREE_POSITIONS.forEach(({x, z, h}) => {
+                const mat = new THREE.SpriteMaterial({ map: treeTex, transparent: true, alphaTest: 0.5 });
+                const sprite = new THREE.Sprite(mat);
+                sprite.scale.set(h * aspect, h, 1);
+                sprite.position.set(x, h / 2, z); // half-height up so the base touches the ground
+                scene.add(sprite);
+            });
+        });
+
+        // One special tree (different texture) placed right beside the spawn
+        // point — counted as part of the same 32 total, not an extra tree.
+        const shtreeTex = new THREE.TextureLoader().load('textures/shtree.png', tex => {
+            tex.magFilter = THREE.NearestFilter;
+            tex.minFilter = THREE.NearestMipmapNearestFilter;
+            const aspect = tex.image.width / tex.image.height;
+            const h = 45;
+            const mat = new THREE.SpriteMaterial({ map: shtreeTex, transparent: true, alphaTest: 0.5 });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(h * aspect, h, 1);
+            sprite.position.set(150, h / 2, 0); // beside the (0,5,0) spawn point
+            scene.add(sprite);
+        });
+
+        // ── Buildings ────────────────────────────────────────────────────
+        // Add your buildings here using addWall() and addRoof()
+        // Walls: height=15, centred at y=7.5 → bottom=0, top=15
+        // Roofs: thickness=1, centred at y=15.5 → bottom=15, top=16
+
+
+
+        // ── Jumpable surfaces ─────────────────────────────────────────────
+        // Add any custom jumpable objects here as: { m, hw, hd, topY }
+        // where m has a .position, hw/hd are half-width/half-depth of the
+        // footprint, and topY is the world-y height of its top surface.
+        const jumpables = [];
+        roofs.forEach(m => {
+            const bb = new THREE.Box3().setFromObject(m);
+            jumpables.push({ m, hw:(bb.max.x-bb.min.x)/2, hd:(bb.max.z-bb.min.z)/2, topY: m.position.y+0.5 });
+        });
+
+        // ══════════════════════════════════════════════════════
+        //  END OF MAP GEOMETRY
+        // ══════════════════════════════════════════════════════
+
+        camera.position.set(0,5,0);
+        const playerEye = new THREE.Vector3(0,5,0); // authoritative physics/eye position
+        let firstPerson = true;
+        let viewMode = 'first'; // 'first' | 'thirdBack' | 'thirdFront' — cycles on V
+        const PLAYER_H = 5; // total rig height, feet to top of head — matches eyeH so eye sits at head-top
+
+        // ── Minecraft skin system ────────────────────────────────────────
+        // Real Java Edition 64x64 skin layout (verified): each body part's
+        // faces are packed into fixed pixel rectangles in one atlas image.
+        // Rather than hand-editing UV attributes, each face gets its own
+        // material whose texture is a *clone* of the skin texture with
+        // offset/repeat set to crop out just that face's rectangle — much
+        // simpler and less error-prone than raw UV manipulation.
+        //
+        // Materials are built with safe flat-color fallbacks immediately, so
+        // a player is always visible even if their skin fails to load. The
+        // real skin textures are only created AFTER the image is confirmed
+        // fully loaded (avoiding the classic "texture marked for update but
+        // image is undefined" spam that happens if you touch a texture
+        // before its image has actually finished downloading/decoding).
+        //
+        // buildPlayerRig() is shared by the local player AND every remote
+        // multiplayer player — each call creates its own independent rig,
+        // materials array, and nameplate, so skins/names never bleed
+        // between players.
+        function skinMaterials(rects, fallbackColor, partsArray) {
+            // rects: {top,bottom,right,left,front,back}, each [x,y,w,h] in atlas pixels.
+            // BoxGeometry face-group order is [+x,-x,+y,-y,+z,-z]; the rig faces -z
+            // (matches the camera's default -z forward), so front→-z, back→+z.
+            const mats = [];
+            for (let i = 0; i < 6; i++) {
+                const m = new THREE.MeshStandardMaterial({ color: fallbackColor });
+                m._skinRect = [rects.right, rects.left, rects.top, rects.bottom, rects.back, rects.front][i];
+                mats.push(m);
+                partsArray.push(m);
+            }
+            return mats;
+        }
+        function applySkinTexture(tex, parts) {
+            // Called only once a skin image has actually finished loading —
+            // safe to clone/crop now since the image data is guaranteed ready.
+            parts.forEach(m => {
+                const [x, y, w, h] = m._skinRect;
+                const t = tex.clone();
+                t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; // don't bleed into neighboring atlas regions
+                t.magFilter = THREE.NearestFilter;
+                t.minFilter = THREE.NearestFilter; // no mipmaps — avoids sampling adjacent atlas rects at a distance
+                t.repeat.set(w/64, h/64);
+                t.offset.set(x/64, 1 - (y+h)/64); // Y flipped: texture V=0 is image bottom, atlas Y=0 is image top
+                t.needsUpdate = true;
+                m.map = t;
+                m.color.set(0xffffff);
+                m.needsUpdate = true;
+            });
+        }
+
+        const HEAD_RECTS = {
+            top:[8,0,8,8], bottom:[16,0,8,8],
+            right:[0,8,8,8], front:[8,8,8,8], left:[16,8,8,8], back:[24,8,8,8]
+        };
+        const TORSO_RECTS = {
+            top:[20,16,8,4], bottom:[28,16,8,4],
+            right:[16,20,4,12], front:[20,20,8,12], left:[28,20,4,12], back:[32,20,8,12]
+        };
+        const R_ARM_RECTS = {
+            top:[44,16,4,4], bottom:[48,16,4,4],
+            right:[40,20,4,12], front:[44,20,4,12], left:[48,20,4,12], back:[52,20,4,12]
+        };
+        const L_ARM_RECTS = {
+            top:[36,48,4,4], bottom:[40,48,4,4],
+            right:[32,52,4,12], front:[36,52,4,12], left:[40,52,4,12], back:[44,52,4,12]
+        };
+        const R_LEG_RECTS = {
+            top:[4,16,4,4], bottom:[8,16,4,4],
+            right:[0,20,4,12], front:[4,20,4,12], left:[8,20,4,12], back:[12,20,4,12]
+        };
+        const L_LEG_RECTS = {
+            top:[20,48,4,4], bottom:[24,48,4,4],
+            right:[16,52,4,12], front:[20,52,4,12], left:[24,52,4,12], back:[28,52,4,12]
+        };
+
+        const PX = 5/32; // world units per Minecraft skin pixel
+        const legH = 12*PX, torsoH = 12*PX, headH = 8*PX;       // 1.875, 1.875, 1.25
+        const torsoW = 8*PX, limbW = 4*PX, limbD = 4*PX;        // 1.25, 0.625, 0.625
+
+        function buildPlayerRig(name) {
+            const parts = []; // flat list of every per-face material for this rig — for colorWrite tricks and skin-swap
+
+            const rig = new THREE.Group();
+
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(torsoW, torsoH, limbD), skinMaterials(TORSO_RECTS, 0x0055BF, parts));
+            torso.position.set(0, legH + torsoH/2, 0); // sits directly on top of the legs
+            torso.castShadow = torso.receiveShadow = true;
+            rig.add(torso);
+
+            // Square head (Minecraft-style), same width as the torso
+            const head = new THREE.Mesh(new THREE.BoxGeometry(torsoW, headH, torsoW), skinMaterials(HEAD_RECTS, 0xF5CD30, parts));
+            head.position.set(0, legH + torsoH + headH/2, 0); // sits directly on top of the torso
+            head.castShadow = head.receiveShadow = true;
+            rig.add(head);
+
+            // Arms/legs use a pivot Group positioned at the shoulder/hip joint,
+            // with the actual mesh offset downward inside it — rotating the
+            // pivot swings the limb from the joint instead of its center.
+            function makeLimb(mats, w,h,d, pivotX, pivotY) {
+                const pivot = new THREE.Group();
+                pivot.position.set(pivotX, pivotY, 0);
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mats);
+                mesh.position.set(0, -h/2, 0);
+                mesh.castShadow = mesh.receiveShadow = true;
+                pivot.add(mesh);
+                rig.add(pivot);
+                return pivot;
+            }
+            // Arms: flush against the torso's sides (arm center = half torso width + half arm width)
+            const armX = torsoW/2 + limbW/2;
+            const leftArm  = makeLimb(skinMaterials(L_ARM_RECTS, 0xF5CD30, parts), limbW, torsoH, limbD, -armX, legH + torsoH);
+            const rightArm = makeLimb(skinMaterials(R_ARM_RECTS, 0xF5CD30, parts), limbW, torsoH, limbD,  armX, legH + torsoH);
+            // Legs: each is exactly half the torso width, meeting at x=0 — zero gap between them
+            const legX = limbW/2;
+            const leftLeg  = makeLimb(skinMaterials(L_LEG_RECTS, 0x00A308, parts), limbW, legH, limbD, -legX, legH);
+            const rightLeg = makeLimb(skinMaterials(R_LEG_RECTS, 0x00A308, parts), limbW, legH, limbD,  legX, legH);
+
+            scene.add(rig);
+
+            // ── Nameplate ──────────────────────────────────────────────────
+            // A canvas-rendered text sprite floating above the head.
+            const nameplateCanvas = document.createElement('canvas');
+            nameplateCanvas.width = 256; nameplateCanvas.height = 64;
+            const nameplateTex = new THREE.CanvasTexture(nameplateCanvas);
+            const nameplateMat = new THREE.SpriteMaterial({ map: nameplateTex, transparent: true, depthTest: false });
+            const nameplateSprite = new THREE.Sprite(nameplateMat);
+            nameplateSprite.scale.set(3, 0.75, 1);
+            scene.add(nameplateSprite);
+
+            function updateNameplateTexture(text) {
+                const ctx = nameplateCanvas.getContext('2d');
+                ctx.clearRect(0, 0, nameplateCanvas.width, nameplateCanvas.height);
+                ctx.font = "bold 32px 'Lato', sans-serif";
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const cx = nameplateCanvas.width/2, cy = nameplateCanvas.height/2;
+                ctx.lineWidth = 6;
+                ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                ctx.strokeText(text, cx, cy);
+                ctx.fillStyle = 'white';
+                ctx.fillText(text, cx, cy);
+                nameplateTex.needsUpdate = true;
+            }
+            updateNameplateTexture(name);
+            if (document.fonts && document.fonts.ready) {
+                // Canvas text can silently fall back to a system font if drawn
+                // before the Lato webfont finishes downloading — redraw once ready.
+                document.fonts.ready.then(() => updateNameplateTexture(name));
+            }
+
+            function destroy() {
+                scene.remove(rig);
+                scene.remove(nameplateSprite);
+                parts.forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+                nameplateTex.dispose();
+            }
+
+            return { rig, parts, leftArm, rightArm, leftLeg, rightLeg, nameplateSprite, updateNameplateTexture, destroy };
+        }
+
+        // ── Local player's own rig ─────────────────────────────────────────
+        const localRigHandles = buildPlayerRig(playerName);
+        const playerRig = localRigHandles.rig;
+        const playerParts = localRigHandles.parts;
+        const leftArm = localRigHandles.leftArm;
+        const rightArm = localRigHandles.rightArm;
+        const leftLeg = localRigHandles.leftLeg;
+        const rightLeg = localRigHandles.rightLeg;
+        const nameplateSprite = localRigHandles.nameplateSprite;
+        const updateNameplateTexture = localRigHandles.updateNameplateTexture;
+        let walkCycle = 0; // drives the procedural walk-swing animation
+
+        new THREE.TextureLoader().load(
+            pendingSkinDataURL || 'textures/player.png',
+            tex => applySkinTexture(tex, playerParts),
+            undefined,
+            err => console.error('Could not load the player skin — check the file exists at that path. Falling back to plain colors.', err)
+        );
+
+        // ── Multiplayer ─────────────────────────────────────────────────────
+        // Connects to the Node.js backend's WebSocket endpoint (same origin,
+        // path /ws — see server.js). Not connected until Play is pressed;
+        // see the playBtn handler above. See server.js for the message
+        // protocol and the identityUuid/connId security model.
+        let ws = null;
+        let myConnId = null;
+        const remotePlayers = new Map(); // connId -> { ...buildPlayerRig() handles, targetX/Y/Z/Yaw, viewMode, walkCycle }
+
+        function spawnRemotePlayer(data) {
+            if (remotePlayers.has(data.connId)) return;
+            const handles = buildPlayerRig(data.name || 'Player');
+            const skinURL = data.skin || 'textures/player.png';
+            new THREE.TextureLoader().load(
+                skinURL,
+                tex => applySkinTexture(tex, handles.parts),
+                undefined,
+                () => {} // if a remote player's custom skin fails to load, just keep the flat-color fallback rig
+            );
+            remotePlayers.set(data.connId, {
+                ...handles,
+                targetX: data.x, targetY: data.y, targetZ: data.z, targetYaw: data.yaw,
+                viewMode: data.viewMode || 'first',
+                walkCycle: 0,
+                lastX: data.x, lastZ: data.z, // used to detect movement for the walk animation
+            });
+        }
+        function removeRemotePlayer(connId) {
+            const rp = remotePlayers.get(connId);
+            if (!rp) return;
+            rp.destroy();
+            remotePlayers.delete(connId);
+        }
+        function updateRemotePlayerTarget(connId, data) {
+            const rp = remotePlayers.get(connId);
+            if (!rp) return;
+            rp.targetX = data.x; rp.targetY = data.y; rp.targetZ = data.z; rp.targetYaw = data.yaw;
+            if (data.viewMode) rp.viewMode = data.viewMode;
+        }
+
+        // ── Chat (ephemeral — see server.js; nothing is stored, no history) ──
+        const chatLog = document.getElementById('chatLog');
+        const chatInput = document.getElementById('chatInput');
+        function addChatLine(name, text) {
+            const line = document.createElement('div');
+            line.className = 'chatLine';
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'chatName';
+            nameSpan.textContent = name + ': '; // textContent, never innerHTML — don't trust other players' names/text
+            const textSpan = document.createElement('span');
+            textSpan.textContent = text;
+            line.appendChild(nameSpan);
+            line.appendChild(textSpan);
+            chatLog.appendChild(line);
+            chatLog.scrollTop = chatLog.scrollHeight;
+            while (chatLog.children.length > 50) chatLog.removeChild(chatLog.firstChild);
+            // Fade this line out after a while so the log doesn't clutter the screen forever
+            setTimeout(() => { line.classList.add('fading'); }, 8000);
+            setTimeout(() => { if (line.parentNode) line.parentNode.removeChild(line); }, 9000);
+        }
+
+        let chatOpen = false;
+        function openChat() {
+            chatOpen = true;
+            chatInput.style.display = 'block';
+            chatInput.value = '';
+            chatInput.focus();
+        }
+        function closeChat() {
+            chatOpen = false;
+            chatInput.style.display = 'none';
+            chatInput.blur();
+            canvas.focus();
+        }
+        chatInput.addEventListener('keydown', e => {
+            e.stopPropagation(); // don't let WASD etc. leak through to game controls while typing
+            if (e.key === 'Enter') {
+                const text = chatInput.value.trim();
+                if (text && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'chat', text }));
+                }
+                closeChat();
+            } else if (e.key === 'Escape') {
+                closeChat();
+            }
+        });
+
+        function connectMultiplayer() {
+            if (ws) return; // already connected/connecting
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+            ws.addEventListener('open', () => {
+                ws.send(JSON.stringify({
+                    type: 'join',
+                    identityUuid: myIdentityUuid,
+                    name: playerName,
+                    skin: pendingSkinDataURL || null,
+                    x: playerEye.x, y: playerEye.y, z: playerEye.z, yaw,
+                }));
+            });
+
+            ws.addEventListener('message', e => {
+                let msg;
+                try { msg = JSON.parse(e.data); } catch (err) { return; }
+
+                switch (msg.type) {
+                    case 'welcome':
+                        myConnId = msg.connId;
+                        if (msg.identityUuid && msg.identityUuid !== myIdentityUuid) {
+                            myIdentityUuid = msg.identityUuid;
+                            localStorage.setItem(IDENTITY_KEY, myIdentityUuid);
+                        }
+                        msg.players.forEach(spawnRemotePlayer);
+                        break;
+                    case 'playerJoined':
+                        spawnRemotePlayer(msg.player);
+                        break;
+                    case 'playerMoved':
+                        updateRemotePlayerTarget(msg.connId, msg);
+                        break;
+                    case 'playerNameChanged': {
+                        const rp = remotePlayers.get(msg.connId);
+                        if (rp) rp.updateNameplateTexture(msg.name);
+                        break;
+                    }
+                    case 'playerSkinChanged': {
+                        const rp = remotePlayers.get(msg.connId);
+                        if (rp && msg.skin) {
+                            new THREE.TextureLoader().load(msg.skin, tex => applySkinTexture(tex, rp.parts));
+                        }
+                        break;
+                    }
+                    case 'playerLeft':
+                        removeRemotePlayer(msg.connId);
+                        break;
+                    case 'chat':
+                        addChatLine(msg.name, msg.text);
+                        break;
+                    case 'error':
+                        console.error('Server error:', msg.message);
+                        break;
+                    default:
+                        break;
+                }
+            });
+
+            ws.addEventListener('close', () => {
+                // Clean up every remote player's rig so a dropped connection
+                // doesn't leave ghost rigs standing around in the scene.
+                for (const connId of [...remotePlayers.keys()]) removeRemotePlayer(connId);
+                ws = null; myConnId = null;
+            });
+        }
+
+        function disconnectMultiplayer() {
+            if (ws) { ws.close(); }
+        }
+
+        let lastMoveSent = 0;
+        function sendMoveIfNeeded() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            const now = performance.now();
+            if (now - lastMoveSent < 60) return; // ~16 updates/sec — well under the server's rate limit
+            lastMoveSent = now;
+            ws.send(JSON.stringify({
+                type: 'move',
+                x: playerEye.x, y: playerEye.y, z: playerEye.z, yaw, viewMode,
+            }));
+        }
+
+        const keys = { w:false,a:false,s:false,d:false,shift:false,space:false };
+        let yaw=0, pitch=0, velocityY=0, isGrounded=true;
+        let joyForward = 0, joyStrafe = 0; // continuous analog input from the mobile joystick
+
+        function toggleView() {
+            viewMode = viewMode==='first' ? 'thirdBack' : viewMode==='thirdBack' ? 'thirdFront' : 'first';
+            firstPerson = (viewMode === 'first');
+            const labels = { first:'1st Person', thirdBack:'3rd Person (Back)', thirdFront:'3rd Person (Front)' };
+            const next = viewMode==='first' ? 'thirdBack' : viewMode==='thirdBack' ? 'thirdFront' : 'first';
+            document.getElementById('viewStatus').textContent = 'V (→ ' + labels[next] + ')';
+            if (firstPerson) {
+                canvas.requestPointerLock();
+            } else {
+                document.exitPointerLock();
+            }
+            crosshair.style.display = firstPerson ? 'block' : 'none';
+        }
+
+        document.addEventListener('keydown', e => {
+            if (!gameStarted) return;
+            if (chatOpen) return; // don't let WASD etc. move the player while typing in chat
+            if (e.key === 'Enter') {
+                openChat();
+                e.preventDefault();
+                return;
+            }
+            const k = e.key.toLowerCase();
+            if (k in keys) keys[k] = true;
+            if (e.key==='Shift') keys.shift=true;
+            if (e.key===' ') { keys.space=true; e.preventDefault(); }
+            if (e.key.toLowerCase()==='v') {
+                toggleView();
+                e.preventDefault();
+            }
+        });
+        document.addEventListener('pointerlockchange', () => {
+            // Real cursor visibility tracks the actual lock state, not just the
+            // view mode — so the cursor is always genuinely usable when unlocked.
+            canvas.style.cursor = (document.pointerLockElement === canvas) ? 'none' : 'default';
+        });
+        document.addEventListener('keyup', e => {
+            if (!gameStarted) return;
+            if (chatOpen) return;
+            const k = e.key.toLowerCase();
+            if (k in keys) keys[k]=false;
+            if (e.key==='Shift') keys.shift=false;
+            if (e.key===' ') keys.space=false;
+        });
+        document.addEventListener('mousemove', e => {
+            if (!gameStarted) return;
+            if (chatOpen) return;
+            yaw -= e.movementX*0.002;
+            pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch - e.movementY*0.002));
+        });
+        canvas.addEventListener('click', () => {
+            if (gameStarted && firstPerson && !settingsPanel.classList.contains('open')) canvas.requestPointerLock();
+        });
+
+        const settingsIcon = document.getElementById('settingsIcon');
+        const settingsPanel = document.getElementById('settingsPanel');
+        const settingsClose = document.getElementById('settingsClose');
+        settingsIcon.addEventListener('click', () => {
+            document.exitPointerLock();
+            settingsPanel.classList.add('open');
+        });
+        settingsClose.addEventListener('click', () => {
+            settingsPanel.classList.remove('open');
+        });
+        document.querySelectorAll('.settingsTab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.settingsTab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.settingsPage').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('page-' + tab.dataset.page).classList.add('active');
+            });
+        });
+
+        document.getElementById('leaveGameBtn').addEventListener('click', () => {
+            gameStarted = false;
+            document.exitPointerLock();
+            settingsPanel.classList.remove('open');
+            disconnectMultiplayer();
+            if (chatOpen) closeChat();
+            // Reset to a clean default state so replaying starts fresh
+            viewMode = 'first';
+            firstPerson = true;
+            crosshair.style.display = 'block';
+            document.getElementById('viewStatus').textContent = 'V (→ 3rd Person (Back))';
+            playerEye.set(0, 5, 0);
+            titleScreen.style.display = 'flex';
+        });
+
+        // ── Mobile touch controls ────────────────────────────────────────
+        const isMobile = /Android|iPhone|iPad|iPod|Mobile|webOS/i.test(navigator.userAgent)
+            || (navigator.maxTouchPoints > 0 && /Mac|Win|Linux/.test(navigator.platform) === false);
+        if (isMobile) {
+            const joystickBase = document.getElementById('joystickBase');
+            const joystickKnob = document.getElementById('joystickKnob');
+            const btnJump = document.getElementById('btnJump');
+            const btnRun = document.getElementById('btnRun');
+            const btnSwitchView = document.getElementById('btnSwitchView');
+            joystickBase.style.display = 'block';
+            btnJump.style.display = 'flex';
+            btnRun.style.display = 'flex';
+            btnSwitchView.style.display = 'flex';
+
+            const JOY_RADIUS = 60; // matches #joystickBase half-width in CSS
+            let joyTouchId = null;
+
+            function updateJoystick(touch) {
+                const rect = joystickBase.getBoundingClientRect();
+                const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+                let dx = touch.clientX - cx, dy = touch.clientY - cy;
+                const dist = Math.hypot(dx, dy);
+                if (dist > JOY_RADIUS) { dx = dx/dist*JOY_RADIUS; dy = dy/dist*JOY_RADIUS; }
+                joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+                // Screen-space up (-dy) = forward, screen-space right (dx) = strafe right
+                joyForward = -dy / JOY_RADIUS;
+                joyStrafe = dx / JOY_RADIUS;
+            }
+            function resetJoystick() {
+                joyTouchId = null;
+                joyForward = 0; joyStrafe = 0;
+                joystickKnob.style.transform = 'translate(0,0)';
+            }
+            joystickBase.addEventListener('touchstart', e => {
+                e.preventDefault();
+                const t = e.changedTouches[0];
+                joyTouchId = t.identifier;
+                updateJoystick(t);
+            });
+            joystickBase.addEventListener('touchmove', e => {
+                e.preventDefault();
+                for (const t of e.changedTouches) if (t.identifier === joyTouchId) updateJoystick(t);
+            });
+            joystickBase.addEventListener('touchend', e => {
+                for (const t of e.changedTouches) if (t.identifier === joyTouchId) resetJoystick();
+            });
+            joystickBase.addEventListener('touchcancel', resetJoystick);
+
+            btnJump.addEventListener('touchstart', e => { e.preventDefault(); keys.space = true; btnJump.classList.add('active'); });
+            btnJump.addEventListener('touchend',   e => { e.preventDefault(); keys.space = false; btnJump.classList.remove('active'); });
+
+            btnRun.addEventListener('touchstart', e => { e.preventDefault(); keys.shift = true; btnRun.classList.add('active'); });
+            btnRun.addEventListener('touchend',   e => { e.preventDefault(); keys.shift = false; btnRun.classList.remove('active'); });
+
+            btnSwitchView.addEventListener('touchstart', e => { e.preventDefault(); toggleView(); });
+
+            // Touch-drag-to-look: pointer lock (used for mouse-look on desktop)
+            // isn't meaningfully supported on mobile, so dragging anywhere on
+            // the canvas itself (not the joystick/buttons, which are separate
+            // overlay elements and capture their own touches) rotates the view.
+            let lookTouchId = null, lookLastX = 0, lookLastY = 0;
+            const TOUCH_LOOK_SENSITIVITY = 0.004;
+            canvas.addEventListener('touchstart', e => {
+                if (lookTouchId !== null) return;
+                const t = e.changedTouches[0];
+                lookTouchId = t.identifier;
+                lookLastX = t.clientX; lookLastY = t.clientY;
+            });
+            canvas.addEventListener('touchmove', e => {
+                for (const t of e.changedTouches) {
+                    if (t.identifier !== lookTouchId) continue;
+                    e.preventDefault();
+                    const dx = t.clientX - lookLastX, dy = t.clientY - lookLastY;
+                    lookLastX = t.clientX; lookLastY = t.clientY;
+                    yaw -= dx * TOUCH_LOOK_SENSITIVITY;
+                    pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch - dy * TOUCH_LOOK_SENSITIVITY));
+                }
+            }, { passive: false });
+            canvas.addEventListener('touchend', e => {
+                for (const t of e.changedTouches) if (t.identifier === lookTouchId) lookTouchId = null;
+            });
+            canvas.addEventListener('touchcancel', () => { lookTouchId = null; });
+        }
+
+        function collidesAt(x, z) {
+            const eyeH = 5;
+            const footY = playerEye.y - eyeH;
+            const headY = playerEye.y + 0.3;
+            for (const w of walls) {
+                const wb = new THREE.Box3().setFromObject(w);
+                if (footY >= wb.max.y - 0.05) continue;
+                if (headY <= wb.min.y) continue;
+                const pb = new THREE.Box3(
+                    new THREE.Vector3(x-0.9, footY + 0.05, z-0.9),
+                    new THREE.Vector3(x+0.9, headY,        z+0.9)
+                );
+                if (pb.intersectsBox(wb)) return true;
+            }
+            return false;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const eyeH = 5;
+            const floorY = eyeH;
+
+            camera.rotation.order = 'YXZ';
+            camera.rotation.y = yaw; camera.rotation.x = pitch;
+
+            const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion); fwd.y=0; fwd.normalize();
+            const rgt = new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion);  rgt.y=0; rgt.normalize();
+
+            const spd = keys.shift ? 1.4 : 0.25;
+            let mx=0, mz=0;
+            if (keys.w) { mx += fwd.x; mz += fwd.z; }
+            if (keys.s) { mx -= fwd.x; mz -= fwd.z; }
+            if (keys.a) { mx -= rgt.x; mz -= rgt.z; }
+            if (keys.d) { mx += rgt.x; mz += rgt.z; }
+            // Mobile joystick — continuous analog input, added on top of WASD
+            mx += fwd.x*joyForward + rgt.x*joyStrafe;
+            mz += fwd.z*joyForward + rgt.z*joyStrafe;
+            const mLen = Math.hypot(mx, mz);
+            if (mLen > 0) { mx = mx/mLen*spd; mz = mz/mLen*spd; }
+
+            // Try full move, then axis-separated so player slides along walls
+            const cx = playerEye.x, cz = playerEye.z;
+            if (!collidesAt(cx+mx, cz+mz))      { playerEye.x+=mx; playerEye.z+=mz; }
+            else if (!collidesAt(cx+mx, cz))     { playerEye.x+=mx; }
+            else if (!collidesAt(cx,    cz+mz))  { playerEye.z+=mz; }
+
+            if (keys.space && isGrounded) { velocityY=0.35; isGrounded=false; }
+            velocityY -= 0.015;
+
+            const nextY = playerEye.y + velocityY;
+
+            // Ground floor
+            if (nextY <= floorY) {
+                playerEye.y = floorY; velocityY = 0; isGrounded = true;
+            } else {
+                // Check jumpable surfaces — if falling and next step crosses the surface, land on it
+                let landed = false;
+                if (velocityY < 0) {
+                    for (const {m, hw, hd, topY} of jumpables) {
+                        const eyeTarget = topY + eyeH;
+                        // Only land if we are within footprint AND we are crossing the surface this frame
+                        if (playerEye.y >= eyeTarget &&
+                            nextY <= eyeTarget &&
+                            Math.abs(playerEye.x - m.position.x) < hw - 0.1 &&
+                            Math.abs(playerEye.z - m.position.z) < hd - 0.1) {
+                            playerEye.y = eyeTarget;
+                            velocityY = 0; isGrounded = true; landed = true; break;
+                        }
+                    }
+                }
+                if (!landed) {
+                    playerEye.y = nextY;
+                    isGrounded = false;
+                }
+            }
+
+            // Camera follows the player: first-person = at eye point, third-person
+            // = pulled back behind the player along the current look direction
+            // (view direction still follows the mouse either way, Minecraft F5-style)
+            if (viewMode === 'first') {
+                camera.position.copy(playerEye);
+                playerParts.forEach(m => m.colorWrite = false); // stay invisible to the color pass...
+                nameplateSprite.visible = false;
+            } else if (viewMode === 'thirdBack') {
+                const back = new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).multiplyScalar(8);
+                camera.position.copy(playerEye).add(back).add(new THREE.Vector3(0,1.5,0));
+                playerParts.forEach(m => m.colorWrite = true);
+                nameplateSprite.visible = true;
+            } else { // thirdFront — camera sits in front of you, looking back at your face
+                const front = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).multiplyScalar(8);
+                camera.position.copy(playerEye).add(front).add(new THREE.Vector3(0,1.5,0));
+                camera.rotation.y = yaw + Math.PI; // face back toward the player instead of the normal look direction
+                playerParts.forEach(m => m.colorWrite = true);
+                nameplateSprite.visible = true;
+            }
+            // ...but always stay in the scene so the shadow pass still renders it
+            const feetY = playerEye.y - eyeH;
+            playerRig.position.set(playerEye.x, feetY, playerEye.z);
+            playerRig.rotation.y = yaw;
+            nameplateSprite.position.set(playerEye.x, feetY + PLAYER_H + 0.6, playerEye.z);
+
+            // Procedural R6-style walk animation: arms/legs swing opposite
+            // phase while moving, tuck up slightly while airborne, and settle
+            // back to neutral when standing still.
+            if (!isGrounded) {
+                // Jumping/falling — simple tucked pose
+                leftArm.rotation.x = -0.4; rightArm.rotation.x = -0.4;
+                leftLeg.rotation.x = 0.3; rightLeg.rotation.x = -0.3;
+            } else if (mLen > 0) {
+                walkCycle += spd * 0.6;
+                const swing = Math.sin(walkCycle) * 0.9;
+                leftArm.rotation.x = swing;
+                rightArm.rotation.x = -swing;
+                leftLeg.rotation.x = -swing;
+                rightLeg.rotation.x = swing;
+            } else {
+                // Idle — ease back to neutral rather than snapping
+                leftArm.rotation.x *= 0.8; rightArm.rotation.x *= 0.8;
+                leftLeg.rotation.x *= 0.8; rightLeg.rotation.x *= 0.8;
+            }
+
+
+            // Sun follows camera — fixed offset in sky
+            dirLight.position.copy(playerEye).add(dirLightOffset);
+            dirLight.target.position.copy(playerEye);
+            dirLight.target.updateMatrixWorld();
+
+            sunMesh.position.set(playerEye.x, playerEye.y+600, playerEye.z);
+
+            // ── Multiplayer: send our position, update everyone else's ──────
+            sendMoveIfNeeded();
+            for (const rp of remotePlayers.values()) {
+                const feetY = rp.targetY - eyeH;
+                const dx = rp.targetX - rp.rig.position.x;
+                const dz = rp.targetZ - rp.rig.position.z;
+                const moveDist = Math.hypot(dx, dz);
+                // Direct snap to the latest network position rather than
+                // interpolating — simple and correct for a first version;
+                // smoothing/prediction between updates would be the natural
+                // next improvement if movement looks too stuttery in practice.
+                rp.rig.position.set(rp.targetX, feetY, rp.targetZ);
+                rp.rig.rotation.y = rp.targetYaw;
+                rp.nameplateSprite.position.set(rp.targetX, feetY + PLAYER_H + 0.6, rp.targetZ);
+
+                if (moveDist > 0.01) {
+                    rp.walkCycle += Math.min(moveDist, 2) * 2.4;
+                    const swing = Math.sin(rp.walkCycle) * 0.9;
+                    rp.leftArm.rotation.x = swing;
+                    rp.rightArm.rotation.x = -swing;
+                    rp.leftLeg.rotation.x = -swing;
+                    rp.rightLeg.rotation.x = swing;
+                } else {
+                    rp.leftArm.rotation.x *= 0.8; rp.rightArm.rotation.x *= 0.8;
+                    rp.leftLeg.rotation.x *= 0.8; rp.rightLeg.rotation.x *= 0.8;
+                }
+            }
+
+            renderer.render(scene, camera);
+
+            // Spy camera only needs to render while the title screen is showing
+            if (titleScreen.style.display !== 'none') {
+                spyCam.rotation.y += 0.0015; // slow continuous roll
+                bgRenderer.render(scene, spyCam);
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth/window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            spyCam.aspect = window.innerWidth/window.innerHeight;
+            spyCam.updateProjectionMatrix();
+            bgRenderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
