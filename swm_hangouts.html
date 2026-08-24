@@ -119,6 +119,15 @@
         }
         #chatInput::placeholder { color: #bbb; }
 
+        #connectionStatus {
+            display: none;
+            position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+            font-family: 'Lato', sans-serif; font-size: 13px; font-weight: 700;
+            padding: 6px 16px; border-radius: 20px;
+            background: rgba(200,80,0,0.85); color: white;
+            z-index: 30;
+        }
+
         /* Mobile touch controls — hidden by default, shown via JS on touch devices */
         #joystickBase {
             display: none;
@@ -235,6 +244,19 @@
             font-size: 14px; margin: 10px 0; color: #eee;
             display: flex; justify-content: space-between;
         }
+
+        .playerRow {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .playerRow:last-child { border-bottom: none; }
+        .playerRow canvas {
+            width: 32px; height: 32px; image-rendering: pixelated;
+            border-radius: 4px; background: rgba(255,255,255,0.08);
+            flex-shrink: 0;
+        }
+        .playerRow .playerRowName { font-size: 14px; color: #eee; }
+        .playerRow .playerRowYou { color: #9fd2ff; font-size: 11px; margin-left: 6px; }
 
         /* Welcome screen */
         #welcomeScreen {
@@ -377,6 +399,7 @@
 
     <div id="chatLog"></div>
     <input type="text" id="chatInput" placeholder="Press Enter to send, Esc to cancel" maxlength="200">
+    <div id="connectionStatus"></div>
 
     <div id="joystickBase"><div id="joystickKnob"></div></div>
     <div class="mobileBtn" id="btnJump">JUMP</div>
@@ -396,7 +419,7 @@
         </div>
         <div id="settingsBody">
             <div class="settingsPage active" id="page-players">
-                <div class="empty">No players yet</div>
+                <div id="playerListContainer"></div>
                 <button id="leaveGameBtn"><span class="material-icons">logout</span>Leave Game</button>
             </div>
             <div class="settingsPage" id="page-controls">
@@ -516,6 +539,10 @@
                 const profile = loadProfile() || {};
                 profile.skin = dataURL;
                 saveProfile(profile);
+                pendingSkinDataURL = dataURL; // BUG FIX: this was never updated here, so a skin
+                                               // changed via Accounts (rather than the Welcome
+                                               // flow) never actually reached other multiplayer
+                                               // players — only your own local rig saw it.
                 new THREE.TextureLoader().load(dataURL, tex => applySkinTexture(tex, playerParts));
             };
             reader.readAsDataURL(file);
@@ -1031,6 +1058,62 @@
             err => console.error('Could not load the player skin — check the file exists at that path. Falling back to plain colors.', err)
         );
 
+        // Shortest-path angle interpolation — a naive lerp between e.g. -3.1
+        // and 3.1 radians would spin the long way around; this always takes
+        // the short way, same as a compass needle settling.
+        function lerpAngle(a, b, t) {
+            let diff = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
+            if (diff < -Math.PI) diff += Math.PI * 2;
+            return a + diff * t;
+        }
+
+        // Draws a small head-icon thumbnail by cropping the skin image's
+        // front-head rectangle ([8,8,8,8] in the 64x64 atlas) — this reads
+        // the raw image pixels via a plain Image/canvas, separate from the
+        // cropped GPU textures used on the 3D rig.
+        function drawHeadIcon(canvas, skinURL) {
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+            const img = new Image();
+            img.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 8, 8, 8, 8, 0, 0, canvas.width, canvas.height);
+            };
+            img.onerror = () => {}; // leave the icon blank rather than break the list if a skin fails to load
+            img.src = skinURL;
+        }
+
+        function renderPlayerList() {
+            const container = document.getElementById('playerListContainer');
+            if (!container) return;
+            container.innerHTML = ''; // safe — only structure we build goes here, never another player's text
+
+            function addRow(name, skinURL, isYou) {
+                const row = document.createElement('div');
+                row.className = 'playerRow';
+                const canvas = document.createElement('canvas');
+                canvas.width = 32; canvas.height = 32;
+                drawHeadIcon(canvas, skinURL || 'textures/player.png');
+                row.appendChild(canvas);
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'playerRowName';
+                nameSpan.textContent = name; // textContent — never trust another player's name in innerHTML
+                row.appendChild(nameSpan);
+                if (isYou) {
+                    const youSpan = document.createElement('span');
+                    youSpan.className = 'playerRowYou';
+                    youSpan.textContent = '(You)';
+                    row.appendChild(youSpan);
+                }
+                container.appendChild(row);
+            }
+
+            addRow(playerName, pendingSkinDataURL, true);
+            for (const rp of remotePlayers.values()) {
+                addRow(rp.name, rp.skin, false);
+            }
+        }
+
         // ── Multiplayer ─────────────────────────────────────────────────────
         // Connects to the Node.js backend's WebSocket endpoint (same origin,
         // path /ws — see server.js). Not connected until Play is pressed;
@@ -1050,25 +1133,33 @@
                 undefined,
                 () => {} // if a remote player's custom skin fails to load, just keep the flat-color fallback rig
             );
+            const feetY = data.y - 5; // eyeH is always 5 (no crouch) — matches the animate() loop's convention
+            handles.rig.position.set(data.x, feetY, data.z);
+            handles.rig.rotation.y = data.yaw;
+            handles.nameplateSprite.position.set(data.x, feetY + PLAYER_H + 0.6, data.z);
             remotePlayers.set(data.connId, {
                 ...handles,
+                name: data.name || 'Player', skin: data.skin || null,
                 targetX: data.x, targetY: data.y, targetZ: data.z, targetYaw: data.yaw,
                 viewMode: data.viewMode || 'first',
+                sprint: !!data.sprint,
                 walkCycle: 0,
-                lastX: data.x, lastZ: data.z, // used to detect movement for the walk animation
             });
+            renderPlayerList();
         }
         function removeRemotePlayer(connId) {
             const rp = remotePlayers.get(connId);
             if (!rp) return;
             rp.destroy();
             remotePlayers.delete(connId);
+            renderPlayerList();
         }
         function updateRemotePlayerTarget(connId, data) {
             const rp = remotePlayers.get(connId);
             if (!rp) return;
             rp.targetX = data.x; rp.targetY = data.y; rp.targetZ = data.z; rp.targetYaw = data.yaw;
             if (data.viewMode) rp.viewMode = data.viewMode;
+            rp.sprint = !!data.sprint;
         }
 
         // ── Chat (ephemeral — see server.js; nothing is stored, no history) ──
@@ -1118,12 +1209,19 @@
             }
         });
 
+        let intentionalDisconnect = false;
+        let reconnectAttempt = 0;
+        let reconnectTimer = null;
+
         function connectMultiplayer() {
             if (ws) return; // already connected/connecting
+            intentionalDisconnect = false;
             const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${proto}//${location.host}/ws`);
 
             ws.addEventListener('open', () => {
+                reconnectAttempt = 0;
+                hideConnectionStatus();
                 ws.send(JSON.stringify({
                     type: 'join',
                     identityUuid: myIdentityUuid,
@@ -1145,6 +1243,7 @@
                             localStorage.setItem(IDENTITY_KEY, myIdentityUuid);
                         }
                         msg.players.forEach(spawnRemotePlayer);
+                        renderPlayerList();
                         break;
                     case 'playerJoined':
                         spawnRemotePlayer(msg.player);
@@ -1154,13 +1253,19 @@
                         break;
                     case 'playerNameChanged': {
                         const rp = remotePlayers.get(msg.connId);
-                        if (rp) rp.updateNameplateTexture(msg.name);
+                        if (rp) {
+                            rp.name = msg.name;
+                            rp.updateNameplateTexture(msg.name);
+                            renderPlayerList();
+                        }
                         break;
                     }
                     case 'playerSkinChanged': {
                         const rp = remotePlayers.get(msg.connId);
                         if (rp && msg.skin) {
+                            rp.skin = msg.skin;
                             new THREE.TextureLoader().load(msg.skin, tex => applySkinTexture(tex, rp.parts));
+                            renderPlayerList();
                         }
                         break;
                     }
@@ -1172,6 +1277,9 @@
                         break;
                     case 'error':
                         console.error('Server error:', msg.message);
+                        intentionalDisconnect = true; // don't auto-retry — reconnecting with the same
+                                                       // identity would just hit the same rejection again
+                        showConnectionStatus('Connection error: ' + msg.message);
                         break;
                     default:
                         break;
@@ -1183,11 +1291,36 @@
                 // doesn't leave ghost rigs standing around in the scene.
                 for (const connId of [...remotePlayers.keys()]) removeRemotePlayer(connId);
                 ws = null; myConnId = null;
+
+                // Unexpected drop (not Leave Game) while still in-game — try
+                // to reconnect automatically instead of leaving the player
+                // stuck offline until they manually reload the page.
+                if (!intentionalDisconnect && gameStarted) {
+                    reconnectAttempt++;
+                    const delay = Math.min(2000 * reconnectAttempt, 10000);
+                    showConnectionStatus(`Reconnecting… (attempt ${reconnectAttempt})`);
+                    reconnectTimer = setTimeout(() => {
+                        if (gameStarted && !intentionalDisconnect) connectMultiplayer();
+                    }, delay);
+                }
             });
         }
 
         function disconnectMultiplayer() {
+            intentionalDisconnect = true;
+            if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+            reconnectAttempt = 0;
+            hideConnectionStatus();
             if (ws) { ws.close(); }
+        }
+
+        function showConnectionStatus(text) {
+            const el = document.getElementById('connectionStatus');
+            if (el) { el.textContent = text; el.style.display = 'block'; }
+        }
+        function hideConnectionStatus() {
+            const el = document.getElementById('connectionStatus');
+            if (el) el.style.display = 'none';
         }
 
         let lastMoveSent = 0;
@@ -1199,6 +1332,7 @@
             ws.send(JSON.stringify({
                 type: 'move',
                 x: playerEye.x, y: playerEye.y, z: playerEye.z, yaw, viewMode,
+                sprint: keys.shift,
             }));
         }
 
@@ -1514,17 +1648,25 @@
                 const feetY = rp.targetY - eyeH;
                 const dx = rp.targetX - rp.rig.position.x;
                 const dz = rp.targetZ - rp.rig.position.z;
-                const moveDist = Math.hypot(dx, dz);
-                // Direct snap to the latest network position rather than
-                // interpolating — simple and correct for a first version;
-                // smoothing/prediction between updates would be the natural
-                // next improvement if movement looks too stuttery in practice.
-                rp.rig.position.set(rp.targetX, feetY, rp.targetZ);
-                rp.rig.rotation.y = rp.targetYaw;
-                rp.nameplateSprite.position.set(rp.targetX, feetY + PLAYER_H + 0.6, rp.targetZ);
+                const moveDist = Math.hypot(dx, dz); // only used as an is-moving-at-all signal now
+
+                // Ease toward the latest network position/rotation instead of
+                // snapping straight to it — network updates only arrive every
+                // ~60ms plus latency, so a direct snap reads as freeze-then-jump.
+                const LERP = 0.25;
+                rp.rig.position.x += dx * LERP;
+                rp.rig.position.y += (feetY - rp.rig.position.y) * LERP;
+                rp.rig.position.z += dz * LERP;
+                rp.rig.rotation.y = lerpAngle(rp.rig.rotation.y, rp.targetYaw, LERP);
+                rp.nameplateSprite.position.set(rp.rig.position.x, rp.rig.position.y + PLAYER_H + 0.6, rp.rig.position.z);
 
                 if (moveDist > 0.01) {
-                    rp.walkCycle += Math.min(moveDist, 2) * 2.4;
+                    // Same formula as the local player's own walk-cycle (spd*0.6),
+                    // driven by their actual sprint flag over the network — not by
+                    // how far behind the smoothed rig is, which is what caused the
+                    // "everyone always looks like they're running" / flashing bug.
+                    const remoteSpd = rp.sprint ? 1.4 : 0.25;
+                    rp.walkCycle += remoteSpd * 0.6;
                     const swing = Math.sin(rp.walkCycle) * 0.9;
                     rp.leftArm.rotation.x = swing;
                     rp.rightArm.rotation.x = -swing;
