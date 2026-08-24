@@ -105,6 +105,7 @@ function publicPlayerData(player) {
         x: player.x, y: player.y, z: player.z,
         yaw: player.yaw,
         viewMode: player.viewMode,
+        sprint: !!player.sprint,
     };
 }
 
@@ -118,6 +119,13 @@ function isIdentityActive(identityUuid) {
 wss.on('connection', ws => {
     const connId = randomUUID();
     let joined = false;
+
+    // Heartbeat: browsers/OSes don't always send a clean close frame when a
+    // connection actually dies (crashed tab, network drop, laptop sleep).
+    // Without this, a dead player can sit as a "ghost" in the world forever
+    // — the periodic sweep below terminates anyone who stops responding.
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
 
     ws.on('message', raw => {
         let msg;
@@ -155,7 +163,7 @@ wss.on('connection', ws => {
                     name, skin,
                     x: clampCoord(msg.x, 0), y: clampCoord(msg.y, 5), z: clampCoord(msg.z, 0),
                     yaw: Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : 0,
-                    viewMode: 'first',
+                    viewMode: 'first', sprint: false,
                     lastMoveTime: 0, lastChatTime: 0,
                 };
                 players.set(connId, newPlayer);
@@ -184,11 +192,12 @@ wss.on('connection', ws => {
                 player.z = clampCoord(msg.z, player.z);
                 if (Number.isFinite(Number(msg.yaw))) player.yaw = Number(msg.yaw);
                 if (typeof msg.viewMode === 'string') player.viewMode = msg.viewMode.slice(0, 20);
+                player.sprint = !!msg.sprint;
 
                 broadcast({
                     type: 'playerMoved', connId,
                     x: player.x, y: player.y, z: player.z,
-                    yaw: player.yaw, viewMode: player.viewMode,
+                    yaw: player.yaw, viewMode: player.viewMode, sprint: player.sprint,
                 }, connId);
                 break;
             }
@@ -245,6 +254,20 @@ wss.on('connection', ws => {
         }
     });
 });
+
+// Every 30s, ping everyone; anyone who didn't pong back since the last
+// sweep gets terminated. terminate() fires the same 'close' handler above,
+// so cleanup (removing from `players`, broadcasting playerLeft) happens
+// the normal way — this just makes sure that actually happens for
+// connections that died silently instead of closing cleanly.
+const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach(ws => {
+        if (ws.isAlive === false) return ws.terminate();
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, 30000);
+wss.on('close', () => clearInterval(heartbeatInterval));
 
 server.listen(PORT, () => {
     console.log(`Hangout Area server running at http://localhost:${PORT}`);
