@@ -95,29 +95,53 @@
             pointer-events: none; z-index: 10;
         }
 
-        #chatLog {
-            position: fixed; left: 16px; bottom: 90px; width: 380px; max-width: 60vw;
-            max-height: 220px; overflow-y: auto;
-            display: flex; flex-direction: column; gap: 4px;
-            pointer-events: none; z-index: 12;
+        /* ── Chat (rebuilt) ─────────────────────────────────────────────── */
+        #chatIcon {
+            position: fixed; top: 16px; left: 76px;
+            width: 48px; height: 48px;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.45); border-radius: 50%;
+            color: white; font-size: 26px; cursor: pointer;
+            z-index: 20; user-select: none;
         }
-        .chatLine {
-            font-family: 'Lato', sans-serif; font-size: 14px; color: white;
-            text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
-            background: rgba(0,0,0,0.35); padding: 4px 8px; border-radius: 4px;
-            word-break: break-word;
-            transition: opacity 1s ease;
-        }
-        .chatLine.fading { opacity: 0; }
-        .chatName { font-weight: 700; color: #9fd2ff; }
-        #chatInput {
+        #chatIcon:hover { background: rgba(0,0,0,0.6); }
+
+        #chatPanel {
             display: none;
-            position: fixed; left: 16px; bottom: 50px; width: 380px; max-width: 60vw;
-            font-family: 'Lato', sans-serif; font-size: 14px;
-            padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.5);
-            background: rgba(0,0,0,0.6); color: white; z-index: 13;
+            position: fixed; top: 72px; left: 76px;
+            width: 500px; max-width: 80vw;
+            background: rgba(20,20,20,0.95); color: white;
+            font-family: 'Lato', sans-serif;
+            border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            z-index: 20; overflow: hidden;
         }
-        #chatInput::placeholder { color: #bbb; }
+        #chatPanel.open { display: flex; flex-direction: column; }
+
+        #chatMessages {
+            height: 260px; overflow-y: auto;
+            padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+        }
+        .chatMsgRow { font-size: 13px; line-height: 1.4; word-break: break-word; }
+        .chatMsgName { font-weight: 700; color: #9fd2ff; }
+        .chatMsgName.isYou { color: #9fffb0; }
+        .chatMsgText { color: #eee; }
+        #chatEmpty { color: #888; font-size: 13px; font-style: italic; padding: 4px 0; }
+
+        #chatInputRow {
+            display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba(255,255,255,0.15);
+        }
+        #chatInputBox {
+            flex: 1; font-family: 'Lato', sans-serif; font-size: 13px;
+            padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.08); color: white;
+        }
+        #chatInputBox::placeholder { color: #999; }
+        #chatSendBtn {
+            width: 36px; height: 36px; border-radius: 6px; border: none;
+            background: rgba(255,255,255,0.12); color: white; font-size: 18px;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+        }
+        #chatSendBtn:hover { background: rgba(255,255,255,0.25); }
 
         #connectionStatus {
             display: none;
@@ -314,6 +338,7 @@
             </div>
             <div class="subPanelBody">
                 <div class="optionRow" id="moreOptionsCreditsRow"><span class="material-icons">description</span>Credits</div>
+                <div class="optionRow" id="moreOptionsSourceRow"><span class="material-icons">code</span>Source</div>
             </div>
         </div>
 
@@ -397,8 +422,6 @@
     </div>
     <div id="crosshair"></div>
 
-    <div id="chatLog"></div>
-    <input type="text" id="chatInput" placeholder="Press Enter to send, Esc to cancel" maxlength="200">
     <div id="connectionStatus"></div>
 
     <div id="joystickBase"><div id="joystickKnob"></div></div>
@@ -407,6 +430,17 @@
     <div class="mobileBtn" id="btnSwitchView">VIEW</div>
 
     <div id="settingsIcon" class="material-icons">settings</div>
+    <div id="chatIcon" class="material-icons">chat</div>
+
+    <div id="chatPanel">
+        <div id="chatMessages">
+            <div id="chatEmpty">No messages yet</div>
+        </div>
+        <div id="chatInputRow">
+            <input type="text" id="chatInputBox" placeholder="Type a message..." maxlength="200">
+            <button id="chatSendBtn" class="material-icons">send</button>
+        </div>
+    </div>
 
     <div id="settingsPanel">
         <div id="settingsHeader">
@@ -495,6 +529,9 @@
         document.getElementById('moreOptionsCreditsRow').addEventListener('click', () => {
             moreOptionsPanel.classList.remove('open');
             creditsPanel.classList.add('open');
+        });
+        document.getElementById('moreOptionsSourceRow').addEventListener('click', () => {
+            window.open('https://github.com/Serat18/hangout_area', '_blank', 'noopener,noreferrer');
         });
         document.getElementById('creditsBack').addEventListener('click', () => {
             creditsPanel.classList.remove('open');
@@ -621,6 +658,7 @@
         scene.fog = new THREE.Fog(0x87ceeb, 300, 1500);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
+        camera.layers.enable(1); // nametags live on layer 1 — the spy camera below deliberately does NOT enable this
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
@@ -629,7 +667,9 @@
         // ── Shtree spy camera ────────────────────────────────────────────
         // The "Start Here Tree" is secretly watching the map — its camera
         // sits at the exact center of the tree's 2D sprite and slowly spins,
-        // feeding the title screen's blurred background.
+        // feeding the title screen's blurred background. It sees full player
+        // bodies (default layer 0) but never nametags (layer 1, not enabled
+        // here on purpose).
         const titleBgCanvas = document.getElementById('titleBgCanvas');
         const bgRenderer = new THREE.WebGLRenderer({ canvas: titleBgCanvas, antialias: true });
         bgRenderer.setSize(window.innerWidth, window.innerHeight);
@@ -823,7 +863,58 @@
             { x:-3882, z:-600, h:52 },
             { x:4051, z:4683, h:50 },
             { x:-263, z:-2892, h:66 },
-            { x:243, z:-3017, h:46 }
+            { x:243, z:-3017, h:46 },
+            // ── +50 more additional trees (fixed positions, not runtime-random, min. 150 units apart from every existing tree and each other) ──
+            { x:3110, z:1253, h:38 },
+            { x:-370, z:3963, h:68 },
+            { x:-3126, z:1481, h:68 },
+            { x:3634, z:-641, h:51 },
+            { x:-3883, z:582, h:45 },
+            { x:-299, z:1424, h:52 },
+            { x:-1334, z:-2826, h:45 },
+            { x:1137, z:726, h:37 },
+            { x:4450, z:-4370, h:61 },
+            { x:-698, z:-863, h:41 },
+            { x:-3268, z:-1558, h:40 },
+            { x:-3938, z:1631, h:62 },
+            { x:-3868, z:3952, h:62 },
+            { x:1953, z:596, h:50 },
+            { x:3984, z:4156, h:64 },
+            { x:-4189, z:1396, h:57 },
+            { x:271, z:935, h:53 },
+            { x:2248, z:2866, h:59 },
+            { x:-4138, z:3454, h:41 },
+            { x:3720, z:484, h:61 },
+            { x:4029, z:-228, h:55 },
+            { x:-283, z:2470, h:45 },
+            { x:-4276, z:-4663, h:61 },
+            { x:4681, z:2258, h:55 },
+            { x:-3719, z:-951, h:59 },
+            { x:-2472, z:-1745, h:45 },
+            { x:-4664, z:-3770, h:44 },
+            { x:-1843, z:2818, h:37 },
+            { x:295, z:4668, h:37 },
+            { x:459, z:3410, h:59 },
+            { x:-230, z:-1524, h:64 },
+            { x:3335, z:1113, h:66 },
+            { x:4286, z:4229, h:36 },
+            { x:2911, z:3116, h:34 },
+            { x:-3569, z:1667, h:68 },
+            { x:-3683, z:3987, h:51 },
+            { x:907, z:1595, h:60 },
+            { x:1343, z:2152, h:30 },
+            { x:4415, z:-3758, h:66 },
+            { x:2588, z:128, h:33 },
+            { x:-1908, z:-2380, h:33 },
+            { x:3599, z:-2675, h:62 },
+            { x:2186, z:-895, h:54 },
+            { x:-399, z:3757, h:63 },
+            { x:43, z:-2092, h:33 },
+            { x:-1783, z:2015, h:46 },
+            { x:-1458, z:-709, h:57 },
+            { x:2124, z:-1052, h:56 },
+            { x:3485, z:-3327, h:55 },
+            { x:-2938, z:3475, h:45 }
         ];
         const treeTex = new THREE.TextureLoader().load('textures/tree.png', tex => {
             tex.magFilter = THREE.NearestFilter;
@@ -878,6 +969,18 @@
         let firstPerson = true;
         let viewMode = 'first'; // 'first' | 'thirdBack' | 'thirdFront' — cycles on V
         const PLAYER_H = 5; // total rig height, feet to top of head — matches eyeH so eye sits at head-top
+
+        // ── Real Minecraft movement speed ───────────────────────────────
+        // Minecraft Wiki: walking = 4.317 blocks/sec, sprinting = 5.612
+        // blocks/sec (exactly 30% faster). Our player rig is PLAYER_H=5
+        // units tall, representing Minecraft's real 1.8-block player height,
+        // so 1 Minecraft block = PLAYER_H/1.8 of our world units. Converted
+        // to units/frame at 60fps and used everywhere movement speed
+        // matters — both the local player's own controls and how fast a
+        // remote player's walk-cycle animation plays.
+        const BLOCK_TO_UNIT = PLAYER_H / 1.8;
+        const WALK_SPEED = (5.612 * BLOCK_TO_UNIT) / 60; // ≈ 0.26 units/frame — old sprint speed, now the walk speed
+        const SPRINT_SPEED = WALK_SPEED * 2;              // ≈ 0.52 units/frame — 2x walk
 
         // ── Minecraft skin system ────────────────────────────────────────
         // Real Java Edition 64x64 skin layout (verified): each body part's
@@ -1006,6 +1109,7 @@
             const nameplateMat = new THREE.SpriteMaterial({ map: nameplateTex, transparent: true, depthTest: false });
             const nameplateSprite = new THREE.Sprite(nameplateMat);
             nameplateSprite.scale.set(3, 0.75, 1);
+            nameplateSprite.layers.set(1); // only cameras with layer 1 enabled render this — keeps it out of the spy cam
             scene.add(nameplateSprite);
 
             function updateNameplateTexture(text) {
@@ -1162,50 +1266,60 @@
             rp.sprint = !!data.sprint;
         }
 
-        // ── Chat (ephemeral — see server.js; nothing is stored, no history) ──
-        const chatLog = document.getElementById('chatLog');
-        const chatInput = document.getElementById('chatInput');
-        function addChatLine(name, text) {
-            const line = document.createElement('div');
-            line.className = 'chatLine';
+        // ── Chat (rebuilt) ────────────────────────────────────────────────
+        // Ephemeral — see server.js; nothing is stored, no history for late
+        // joiners. Messages persist in the panel while it's open (capped to
+        // the last 50), rather than auto-fading like the old version.
+        const chatIcon = document.getElementById('chatIcon');
+        const chatPanel = document.getElementById('chatPanel');
+        const chatMessages = document.getElementById('chatMessages');
+        const chatEmpty = document.getElementById('chatEmpty');
+        const chatInputBox = document.getElementById('chatInputBox');
+        const chatSendBtn = document.getElementById('chatSendBtn');
+
+        function addChatMessage(name, text, isYou) {
+            if (chatEmpty) chatEmpty.remove();
+            const row = document.createElement('div');
+            row.className = 'chatMsgRow';
             const nameSpan = document.createElement('span');
-            nameSpan.className = 'chatName';
+            nameSpan.className = 'chatMsgName' + (isYou ? ' isYou' : '');
             nameSpan.textContent = name + ': '; // textContent, never innerHTML — don't trust other players' names/text
             const textSpan = document.createElement('span');
+            textSpan.className = 'chatMsgText';
             textSpan.textContent = text;
-            line.appendChild(nameSpan);
-            line.appendChild(textSpan);
-            chatLog.appendChild(line);
-            chatLog.scrollTop = chatLog.scrollHeight;
-            while (chatLog.children.length > 50) chatLog.removeChild(chatLog.firstChild);
-            // Fade this line out after a while so the log doesn't clutter the screen forever
-            setTimeout(() => { line.classList.add('fading'); }, 8000);
-            setTimeout(() => { if (line.parentNode) line.parentNode.removeChild(line); }, 9000);
+            row.appendChild(nameSpan);
+            row.appendChild(textSpan);
+            chatMessages.appendChild(row);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            while (chatMessages.children.length > 50) chatMessages.removeChild(chatMessages.firstChild);
         }
 
-        let chatOpen = false;
-        function openChat() {
-            chatOpen = true;
-            chatInput.style.display = 'block';
-            chatInput.value = '';
-            chatInput.focus();
+        let chatTyping = false; // true only while the input box actually has focus — blocks WASD/mouse-look during that time
+        chatInputBox.addEventListener('focus', () => { chatTyping = true; });
+        chatInputBox.addEventListener('blur', () => { chatTyping = false; });
+
+        function sendChatMessage() {
+            const text = chatInputBox.value.trim();
+            if (!text) return;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'chat', text }));
+            }
+            chatInputBox.value = '';
+            chatInputBox.focus();
         }
-        function closeChat() {
-            chatOpen = false;
-            chatInput.style.display = 'none';
-            chatInput.blur();
-            canvas.focus();
-        }
-        chatInput.addEventListener('keydown', e => {
+        chatInputBox.addEventListener('keydown', e => {
             e.stopPropagation(); // don't let WASD etc. leak through to game controls while typing
-            if (e.key === 'Enter') {
-                const text = chatInput.value.trim();
-                if (text && ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'chat', text }));
-                }
-                closeChat();
-            } else if (e.key === 'Escape') {
-                closeChat();
+            if (e.key === 'Enter') sendChatMessage();
+            else if (e.key === 'Escape') chatInputBox.blur();
+        });
+        chatSendBtn.addEventListener('click', () => sendChatMessage());
+
+        chatIcon.addEventListener('click', () => {
+            const opening = !chatPanel.classList.contains('open');
+            chatPanel.classList.toggle('open');
+            if (opening) {
+                document.exitPointerLock();
+                chatInputBox.focus();
             }
         });
 
@@ -1273,7 +1387,7 @@
                         removeRemotePlayer(msg.connId);
                         break;
                     case 'chat':
-                        addChatLine(msg.name, msg.text);
+                        addChatMessage(msg.name, msg.text, msg.connId === myConnId);
                         break;
                     case 'error':
                         console.error('Server error:', msg.message);
@@ -1356,12 +1470,7 @@
 
         document.addEventListener('keydown', e => {
             if (!gameStarted) return;
-            if (chatOpen) return; // don't let WASD etc. move the player while typing in chat
-            if (e.key === 'Enter') {
-                openChat();
-                e.preventDefault();
-                return;
-            }
+            if (chatTyping) return; // don't let WASD etc. move the player while typing in chat
             const k = e.key.toLowerCase();
             if (k in keys) keys[k] = true;
             if (e.key==='Shift') keys.shift=true;
@@ -1378,7 +1487,7 @@
         });
         document.addEventListener('keyup', e => {
             if (!gameStarted) return;
-            if (chatOpen) return;
+            if (chatTyping) return;
             const k = e.key.toLowerCase();
             if (k in keys) keys[k]=false;
             if (e.key==='Shift') keys.shift=false;
@@ -1386,12 +1495,12 @@
         });
         document.addEventListener('mousemove', e => {
             if (!gameStarted) return;
-            if (chatOpen) return;
+            if (chatTyping) return;
             yaw -= e.movementX*0.002;
             pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch - e.movementY*0.002));
         });
         canvas.addEventListener('click', () => {
-            if (gameStarted && firstPerson && !settingsPanel.classList.contains('open')) canvas.requestPointerLock();
+            if (gameStarted && firstPerson && !settingsPanel.classList.contains('open') && !chatPanel.classList.contains('open')) canvas.requestPointerLock();
         });
 
         const settingsIcon = document.getElementById('settingsIcon');
@@ -1418,7 +1527,10 @@
             document.exitPointerLock();
             settingsPanel.classList.remove('open');
             disconnectMultiplayer();
-            if (chatOpen) closeChat();
+            chatPanel.classList.remove('open');
+            chatInputBox.blur();
+            chatInputBox.value = '';
+            chatMessages.innerHTML = '<div id="chatEmpty">No messages yet</div>';
             // Reset to a clean default state so replaying starts fresh
             viewMode = 'first';
             firstPerson = true;
@@ -1541,7 +1653,7 @@
             const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion); fwd.y=0; fwd.normalize();
             const rgt = new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion);  rgt.y=0; rgt.normalize();
 
-            const spd = keys.shift ? 1.4 : 0.25;
+            const spd = keys.shift ? SPRINT_SPEED : WALK_SPEED;
             let mx=0, mz=0;
             if (keys.w) { mx += fwd.x; mz += fwd.z; }
             if (keys.s) { mx -= fwd.x; mz -= fwd.z; }
@@ -1665,7 +1777,7 @@
                     // driven by their actual sprint flag over the network — not by
                     // how far behind the smoothed rig is, which is what caused the
                     // "everyone always looks like they're running" / flashing bug.
-                    const remoteSpd = rp.sprint ? 1.4 : 0.25;
+                    const remoteSpd = rp.sprint ? SPRINT_SPEED : WALK_SPEED;
                     rp.walkCycle += remoteSpd * 0.6;
                     const swing = Math.sin(rp.walkCycle) * 0.9;
                     rp.leftArm.rotation.x = swing;
